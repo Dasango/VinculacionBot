@@ -4,6 +4,9 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
 from flask import Flask
+from io import BytesIO
+import datetime
+import drive_utils
 
 # Cargar variables de entorno
 load_dotenv()
@@ -65,16 +68,45 @@ async def handle_image_with_description(update: Update, context: ContextTypes.DE
     # Log para depuración
     logging.info(f"Foto recibida. Caption: {caption}")
     
-    # AQUÍ PUEDES IMPLEMENTAR TU LÓGICA PARA IMÁGENES CON DESCRIPCIÓN
-    # Por ejemplo: procesar la imagen, guardar la descripción, etc.
-    
-    response_text = "✅ Foto recibida correctamente."
-    if caption:
-        response_text += f"\n📝 Descripción: {caption}"
-    else:
-        response_text += "\n⚠️ No se proporcionó descripción."
+    # Notificar usuario
+    status_msg = await update.message.reply_text("⏳ Recibido. Subiendo a Google Drive...")
 
-    await update.message.reply_text(response_text)
+    try:
+        # Descargar imagen a memoria
+        file_stream = BytesIO()
+        await photo_file.download_to_memory(out=file_stream)
+        file_stream.seek(0)
+        
+        # Definir nombre base: DD-MM-YYYY.jpg
+        # drive_utils se encargará de los duplicados (ej: (1), (2))
+        filename = datetime.datetime.now().strftime("%d-%m-%Y.jpg")
+        
+        
+        # Subir a Drive
+        uploaded_file, daily_folder = drive_utils.upload_image_from_stream(file_stream, filename, description=caption)
+        
+        # Actualizar Sheet con Link de la Carpeta
+        if daily_folder and daily_folder.get('webViewLink'):
+             drive_utils.update_daily_folder_link(daily_folder.get('webViewLink'))
+             
+        # Si hay caption, guardarlo como texto en el Sheet también?
+        # El usuario dijo: "todos los mensajes de texto se guarden en la columna description"
+        # Asumo que el caption cuenta como mensaje de texto asociado.
+        if caption:
+            drive_utils.append_text_log(f"[FOTO] {caption}")
+        else:
+            drive_utils.append_text_log("[FOTO SIN DESCRIPCIÓN]")
+        
+        response_text = f"✅ ¡Guardado en Drive!\n"
+        response_text += f"📂 Archivo: {uploaded_file.get('name')}\n"
+        if caption:
+            response_text += f"📝 Descripción: {caption}"
+            
+        await status_msg.edit_text(response_text)
+        
+    except Exception as e:
+        logging.error(f"Error subiendo imagen: {e}")
+        await status_msg.edit_text(f"❌ Error al guardar en Drive: {str(e)}")
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Método para manejar mensajes de texto"""
@@ -83,12 +115,11 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Log para depuración
     logging.info(f"Mensaje de texto recibido: {text}")
     
-    # AQUÍ PUEDES IMPLEMENTAR TU LÓGICA PARA MENSAJES DE TEXTO
-    # Por ejemplo: procesar el texto, responder, guardar en base de datos, etc.
-    
     # Evitar procesar comandos como texto normal
     if not text.startswith('/'):
-        await update.message.reply_text(f"📝 Texto recibido: {text[:100]}...")
+        # Guardar en Sheets
+        drive_utils.append_text_log(text)
+        await update.message.reply_text(f"📝 Texto guardado en bitácora.")
 
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Método para manejar mensajes de audio"""
