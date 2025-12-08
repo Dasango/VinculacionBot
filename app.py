@@ -64,6 +64,7 @@ async def handle_image_with_description(update: Update, context: ContextTypes.DE
     photo_file = await photo.get_file()
     
     caption = update.message.caption
+    user_id = update.effective_user.id
     
     # Log para depuración
     logging.info(f"Foto recibida. Caption: {caption}")
@@ -83,19 +84,17 @@ async def handle_image_with_description(update: Update, context: ContextTypes.DE
         
         
         # Subir a Drive
-        uploaded_file, daily_folder = drive_utils.upload_image_from_stream(file_stream, filename, description=caption)
+        uploaded_file, daily_folder = drive_utils.upload_image_from_stream(file_stream, filename, user_id, description=caption)
         
         # Actualizar Sheet con Link de la Carpeta
         if daily_folder and daily_folder.get('webViewLink'):
-             drive_utils.update_daily_folder_link(daily_folder.get('webViewLink'))
+             drive_utils.update_daily_folder_link(daily_folder.get('webViewLink'), user_id=user_id)
              
         # Si hay caption, guardarlo como texto en el Sheet también?
         # El usuario dijo: "todos los mensajes de texto se guarden en la columna description"
         # Asumo que el caption cuenta como mensaje de texto asociado.
         if caption:
-            drive_utils.append_text_log(f"[FOTO] {caption}")
-        else:
-            drive_utils.append_text_log("[FOTO SIN DESCRIPCIÓN]")
+            drive_utils.append_text_log(f"[FOTO] {caption}", user_id=user_id)
         
         response_text = f"✅ ¡Guardado en Drive!\n"
         response_text += f"📂 Archivo: {uploaded_file.get('name')}\n"
@@ -111,6 +110,7 @@ async def handle_image_with_description(update: Update, context: ContextTypes.DE
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Método para manejar mensajes de texto"""
     text = update.message.text
+    user_id = update.effective_user.id
     
     # Log para depuración
     logging.info(f"Mensaje de texto recibido: {text}")
@@ -118,7 +118,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Evitar procesar comandos como texto normal
     if not text.startswith('/'):
         # Guardar en Sheets
-        drive_utils.append_text_log(text)
+        drive_utils.append_text_log(text, user_id=user_id)
         await update.message.reply_text(f"📝 Texto guardado en bitácora.")
 
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):

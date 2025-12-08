@@ -84,20 +84,25 @@ def get_unique_filename(service, filename, parent_id):
         new_filename = f"{name} ({counter}){ext}"
         counter += 1
 
-def upload_image_from_stream(file_stream, filename, description=None):
+def upload_image_from_stream(file_stream, filename, user_id, description=None):
     """Sube una imagen desde un stream de bytes a Google Drive y retorna la carpeta del día."""
     try:
         service = get_drive_service()
+
+        # 1. Obtener/Crear carpeta del Usuario (ID de Telegram)
+        # Nota: user_id debe ser string
+        user_folder = get_or_create_folder(service, str(user_id), PARENT_FOLDER_ID)
+        user_folder_id = user_folder.get('id')
         
-        # 1. Obtener/Crear carpeta del día (DD-MM-YYYY)
+        # 2. Obtener/Crear carpeta del día (DD-MM-YYYY) DENTRO de la carpeta del usuario
         today_str = datetime.datetime.now().strftime("%d-%m-%Y")
-        daily_folder = get_or_create_folder(service, today_str, PARENT_FOLDER_ID)
+        daily_folder = get_or_create_folder(service, today_str, user_folder_id)
         daily_folder_id = daily_folder.get('id')
         
-        # 2. Generar nombre de archivo único
+        # 3. Generar nombre de archivo único
         unique_filename = get_unique_filename(service, filename, daily_folder_id)
         
-        # 3. Preparar metadata y subida
+        # 4. Preparar metadata y subida
         file_metadata = {
             'name': unique_filename,
             'parents': [daily_folder_id]
@@ -124,28 +129,34 @@ def upload_image_from_stream(file_stream, filename, description=None):
 
 # --- SHEETS FUNCTIONS ---
 
-def find_today_row(service, spreadsheet_id):
-    """Busca la fila correspondiente a la fecha de hoy. Retorna el índice (1-based) o None."""
+def find_user_today_row(service, spreadsheet_id, user_id):
+    """Busca la fila correspondiente al usuario y la fecha de hoy. Retorna el índice (1-based) o None."""
     today_str = datetime.datetime.now().strftime("%d-%m-%Y")
+    str_user_id = str(user_id)
     
-    # Leer Columna A (Fecha)
+    # Leer Columnas A (User) y B (Fecha)
     result = service.spreadsheets().values().get(
-        spreadsheetId=spreadsheet_id, range="A:A").execute()
+        spreadsheetId=spreadsheet_id, range="A:B").execute()
     values = result.get('values', [])
     
     for i, row in enumerate(values):
-        if row and row[0] == today_str:
+        # Asegurarse que la fila tenga al menos 2 columnas
+        if len(row) >= 2 and row[0] == str_user_id and row[1] == today_str:
             return i + 1  # 1-based index
             
     return None
 
-def append_text_log(text):
-    """Agrega texto a la columna Descripción (C) del día de hoy."""
+def append_text_log(text, user_id):
+    """Agrega texto a la columna Descripción (C) para el usuario y día de hoy."""
+    if not user_id:
+        return
+
     try:
         service = get_sheets_service()
         today_str = datetime.datetime.now().strftime("%d-%m-%Y")
+        str_user_id = str(user_id)
         
-        row_idx = find_today_row(service, SPREADSHEET_ID)
+        row_idx = find_user_today_row(service, SPREADSHEET_ID, user_id)
         
         if row_idx:
             # La fila existe, obtener contenido actual de Descripción (Col C)
@@ -160,16 +171,17 @@ def append_text_log(text):
             else:
                 new_desc = text
                 
-            # Actualizar celda
-            body = {'values': [[new_desc]]}
+            # Actualizar celda Descripción
+            body_desc = {'values': [[new_desc]]}
             service.spreadsheets().values().update(
                 spreadsheetId=SPREADSHEET_ID, range=range_name,
-                valueInputOption="RAW", body=body).execute()
+                valueInputOption="RAW", body=body_desc).execute()
+
         else:
             # Crear nueva fila al final
-            # Estructura: [Fecha, Duración(vacio), Descripción, LinkFoto]
-            # LinkFoto default: "No se han guardaron fotos"
-            values = [[today_str, "", text, "No se han guardaron fotos"]]
+            # Estructura: [User, Fecha, Descripción, Carpeta, Duración]
+            # Columnas: A, B, C, D, E
+            values = [[str_user_id, today_str, text, "No se han guardaron fotos", ""]]
             body = {'values': values}
             service.spreadsheets().values().append(
                 spreadsheetId=SPREADSHEET_ID, range="A1",
@@ -177,27 +189,31 @@ def append_text_log(text):
                 
     except Exception as e:
         logging.error(f"Error actualizando Sheets (Texto): {str(e)}")
-        # No relanzamos para no interrumpir el flujo principal del bot si falla sheets
 
-def update_daily_folder_link(folder_link):
-    """Actualiza la columna LinkFoto (D) con el link de la carpeta del día."""
+def update_daily_folder_link(folder_link, user_id):
+    """Actualiza la columna Carpeta (D) con el link para el usuario y día de hoy."""
+    if not user_id:
+        return
+
     try:
         service = get_sheets_service()
         today_str = datetime.datetime.now().strftime("%d-%m-%Y")
+        str_user_id = str(user_id)
         
-        row_idx = find_today_row(service, SPREADSHEET_ID)
+        row_idx = find_user_today_row(service, SPREADSHEET_ID, user_id)
         
         if row_idx:
-            # Fila existe, actualizar LinkFoto (Col D)
+            # Fila existe, actualizar Carpeta (Col D)
             range_name = f"D{row_idx}"
             body = {'values': [[folder_link]]}
             service.spreadsheets().values().update(
                 spreadsheetId=SPREADSHEET_ID, range=range_name,
                 valueInputOption="RAW", body=body).execute()
+                
         else:
-            # Fila no existe (caso raro si sube foto primero que texto)
-            # Crear fila
-            values = [[today_str, "", "", folder_link]]
+            # Fila no existe
+            # Estructura: [User, Fecha, Descripción, Carpeta, Duración]
+            values = [[str_user_id, today_str, "", folder_link, ""]]
             body = {'values': values}
             service.spreadsheets().values().append(
                 spreadsheetId=SPREADSHEET_ID, range="A1",
