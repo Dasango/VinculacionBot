@@ -7,7 +7,8 @@ from flask import Flask
 from io import BytesIO
 import datetime
 import drive_utils
-
+from bot_proxy import safe_command, DescriptionEmptyError, APIKeyMissingError
+import ai_service
 # Cargar variables de entorno
 load_dotenv()
 TOKEN = os.getenv('TELEGRAM_TOKEN')
@@ -26,34 +27,51 @@ def home():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Maneja el comando /start"""
-    await update.message.reply_text("¡Hola! Envíame una foto con una descripción para procesarla.")
+    await update.message.reply_text("¡Hola! Empecemos a documentar vinculación.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Maneja el comando /help"""
     help_text = """
 📚 **Comandos disponibles:**
 
-/send - TODO: pensar que dice aqui
-/help - Muestra esta ayuda
+/send - No hace nada
+/help - Muestra esto
 
 📱 **Funcionalidades:**
-• Envía una imagen con descripción
-• Envía mensajes de texto
-• Envía archivos de audio
+• Algo hace tu confía
 """
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
+
+@safe_command
 async def send_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Maneja el comando /send"""
-    # Obtener el texto después del comando
-    text = ' '.join(context.args) if context.args else ""
+    """Maneja el comando /send para generar reporte con IA"""
+    user_id = update.effective_user.id
     
-    # Aquí implementarás la lógica para el comando /send
-    # Por ahora, solo responde con el texto recibido
-    if text:
-        await update.message.reply_text(f"📤 Comando /send recibido con texto:\n\n{text}")
-    else:
-        await update.message.reply_text("📤 Comando /send recibido. Añade un texto después del comando.")
+    await update.message.reply_text("🤔 Analizando tus mensajes de hoy...")
+    
+    # 1. Obtener mensajes del día
+    descriptions = drive_utils.get_day_descriptions(user_id)
+    
+    if not descriptions:
+        raise DescriptionEmptyError("No hay descripciones")
+        
+    await update.message.reply_text("🧠 Generando reporte con IA...")
+    
+    # 2. Generar respuesta con IA
+    try:
+        ai_response = ai_service.AIService.generate_summary(descriptions)
+    except Exception as e:
+        # Si es error de API Key, relanzar especificamente si podemos detectarlo, 
+        # sino dejar que el proxy capture el genérico
+        if "API_KEY" in str(e).upper(): # Simple check
+             raise APIKeyMissingError()
+        raise e
+    
+    # 3. Guardar en Column F
+    drive_utils.update_ai_response(ai_response, user_id)
+    
+    await update.message.reply_text(f"✨ Reporte generado y guardado:\n\n{ai_response}")
 
 # --- MÉTODOS PARA MANEJAR DIFERENTES TIPOS DE CONTENIDO ---
 
@@ -94,7 +112,7 @@ async def handle_image_with_description(update: Update, context: ContextTypes.DE
         # El usuario dijo: "todos los mensajes de texto se guarden en la columna description"
         # Asumo que el caption cuenta como mensaje de texto asociado.
         if caption:
-            drive_utils.append_text_log(f"[FOTO] {caption}", user_id=user_id)
+            drive_utils.append_text_log(f"{caption}", user_id=user_id)
         
         response_text = f"✅ ¡Guardado en Drive!\n"
         response_text += f"📂 Archivo: {uploaded_file.get('name')}\n"

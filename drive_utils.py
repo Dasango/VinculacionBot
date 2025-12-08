@@ -146,6 +146,41 @@ def find_user_today_row(service, spreadsheet_id, user_id):
             
     return None
 
+def update_timer_logic(service, spreadsheet_id, row_idx):
+    """Actualiza G (Inicio), H (Fin) y E (Duración) para una fila existente."""
+    try:
+        now_time = datetime.datetime.now().strftime("%H:%M:%S")
+        
+        # 1. Chequear si G está vacío
+        range_g = f"G{row_idx}"
+        result = service.spreadsheets().values().get(
+            spreadsheetId=spreadsheet_id, range=range_g).execute()
+        
+        values = result.get('values', [])
+        current_g = values[0][0] if values and values[0] else None
+        
+        data = []
+        # Si G vacío, actualizarlo
+        if not current_g:
+            data.append({'range': f"G{row_idx}", 'values': [[now_time]]})
+            
+        # Siempre actualizar H
+        data.append({'range': f"H{row_idx}", 'values': [[now_time]]})
+        
+        # Asegurar fórmula E
+        formula = f"=H{row_idx}-G{row_idx}"
+        data.append({'range': f"E{row_idx}", 'values': [[formula]]})
+        
+        body = {
+            'valueInputOption': 'USER_ENTERED',
+            'data': data
+        }
+        service.spreadsheets().values().batchUpdate(
+            spreadsheetId=spreadsheet_id, body=body).execute()
+            
+    except Exception as e:
+        logging.error(f"Error actualizando timers: {str(e)}")
+
 def append_text_log(text, user_id):
     """Agrega texto a la columna Descripción (C) para el usuario y día de hoy."""
     if not user_id:
@@ -176,16 +211,21 @@ def append_text_log(text, user_id):
             service.spreadsheets().values().update(
                 spreadsheetId=SPREADSHEET_ID, range=range_name,
                 valueInputOption="RAW", body=body_desc).execute()
+            
+            # Actualizar timers
+            update_timer_logic(service, SPREADSHEET_ID, row_idx)
 
         else:
             # Crear nueva fila al final
-            # Estructura: [User, Fecha, Descripción, Carpeta, Duración]
-            # Columnas: A, B, C, D, E
-            values = [[str_user_id, today_str, text, "No se han guardaron fotos", ""]]
+            # Estructura: [User, Fecha, Descripción, Carpeta, Duración, "Filler", Inicio, Fin]
+            now_time = datetime.datetime.now().strftime("%H:%M:%S")
+            formula = '=INDIRECT("H"&ROW())-INDIRECT("G"&ROW())'
+            
+            values = [[str_user_id, today_str, text, "No se han guardaron fotos", formula, "", now_time, now_time]]
             body = {'values': values}
             service.spreadsheets().values().append(
                 spreadsheetId=SPREADSHEET_ID, range="A1",
-                valueInputOption="RAW", insertDataOption="INSERT_ROWS", body=body).execute()
+                valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS", body=body).execute()
                 
     except Exception as e:
         logging.error(f"Error actualizando Sheets (Texto): {str(e)}")
@@ -209,15 +249,72 @@ def update_daily_folder_link(folder_link, user_id):
             service.spreadsheets().values().update(
                 spreadsheetId=SPREADSHEET_ID, range=range_name,
                 valueInputOption="RAW", body=body).execute()
+            
+            # Actualizar timers
+            update_timer_logic(service, SPREADSHEET_ID, row_idx)
                 
         else:
             # Fila no existe
-            # Estructura: [User, Fecha, Descripción, Carpeta, Duración]
-            values = [[str_user_id, today_str, "", folder_link, ""]]
+            # Estructura: [User, Fecha, Descripción, Carpeta, Duración, "Filler", Inicio, Fin]
+            now_time = datetime.datetime.now().strftime("%H:%M:%S")
+            formula = '=INDIRECT("H"&ROW())-INDIRECT("G"&ROW())'
+            
+            values = [[str_user_id, today_str, "", folder_link, formula, "", now_time, now_time]]
             body = {'values': values}
             service.spreadsheets().values().append(
                 spreadsheetId=SPREADSHEET_ID, range="A1",
-                valueInputOption="RAW", insertDataOption="INSERT_ROWS", body=body).execute()
+                valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS", body=body).execute()
                 
     except Exception as e:
         logging.error(f"Error actualizando Sheets (Link): {str(e)}")
+
+def get_day_descriptions(user_id):
+    """
+    Obtiene el contenido de la columna C (Descripción) para el usuario y día actual.
+    Retorna una lista de strings o None si no se encuentra.
+    """
+    if not user_id:
+        return None
+        
+    try:
+        service = get_sheets_service()
+        row_idx = find_user_today_row(service, SPREADSHEET_ID, user_id)
+        
+        if row_idx:
+            range_name = f"C{row_idx}"
+            result = service.spreadsheets().values().get(
+                spreadsheetId=SPREADSHEET_ID, range=range_name).execute()
+            values = result.get('values', [])
+            if values and values[0]:
+                return values[0][0]
+                
+        return None
+        
+    except Exception as e:
+        logging.error(f"Error leyendo descripciones: {str(e)}")
+        raise e
+
+def update_ai_response(response_text, user_id):
+    """Actualiza la columna F (AI Response) con el texto generado."""
+    if not user_id:
+        return
+
+    try:
+        service = get_sheets_service()
+        row_idx = find_user_today_row(service, SPREADSHEET_ID, user_id)
+        
+        if row_idx:
+            # Columna F es la 6ta columna
+            range_name = f"F{row_idx}"
+            body = {'values': [[response_text]]}
+            service.spreadsheets().values().update(
+                spreadsheetId=SPREADSHEET_ID, range=range_name,
+                valueInputOption="RAW", body=body).execute()
+        else:
+            # Si no existe la fila, no podemos guardar la respuesta IA asociada a mensajes inexistentes
+            # (Aunque teóricamente se podría crear, el requerimiento es procesar mensajes existentes)
+            pass
+            
+    except Exception as e:
+        logging.error(f"Error actualizando Sheets (AI): {str(e)}")
+        raise e
