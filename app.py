@@ -25,8 +25,37 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Maneja el comando /start"""
     await update.message.reply_text("¡Hola! Envíame una foto con una descripción para procesarla.")
 
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Maneja mensajes que contienen fotos"""
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Maneja el comando /help"""
+    help_text = """
+📚 **Comandos disponibles:**
+
+/send - TODO: pensar que dice aqui
+/help - Muestra esta ayuda
+
+📱 **Funcionalidades:**
+• Envía una imagen con descripción
+• Envía mensajes de texto
+• Envía archivos de audio
+"""
+    await update.message.reply_text(help_text, parse_mode='Markdown')
+
+async def send_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Maneja el comando /send"""
+    # Obtener el texto después del comando
+    text = ' '.join(context.args) if context.args else ""
+    
+    # Aquí implementarás la lógica para el comando /send
+    # Por ahora, solo responde con el texto recibido
+    if text:
+        await update.message.reply_text(f"📤 Comando /send recibido con texto:\n\n{text}")
+    else:
+        await update.message.reply_text("📤 Comando /send recibido. Añade un texto después del comando.")
+
+# --- MÉTODOS PARA MANEJAR DIFERENTES TIPOS DE CONTENIDO ---
+
+async def handle_image_with_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Método para manejar imágenes con descripción"""
     # Obtener el archivo de la foto (la última es la de mayor resolución)
     photo = update.message.photo[-1]
     photo_file = await photo.get_file()
@@ -36,13 +65,73 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Log para depuración
     logging.info(f"Foto recibida. Caption: {caption}")
     
+    # AQUÍ PUEDES IMPLEMENTAR TU LÓGICA PARA IMÁGENES CON DESCRIPCIÓN
+    # Por ejemplo: procesar la imagen, guardar la descripción, etc.
+    
     response_text = "✅ Foto recibida correctamente."
     if caption:
         response_text += f"\n📝 Descripción: {caption}"
     else:
-        response_text += "\n⚠️ No olvidaste la descripción, ¿verdad?"
+        response_text += "\n⚠️ No se proporcionó descripción."
 
     await update.message.reply_text(response_text)
+
+async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Método para manejar mensajes de texto"""
+    text = update.message.text
+    
+    # Log para depuración
+    logging.info(f"Mensaje de texto recibido: {text}")
+    
+    # AQUÍ PUEDES IMPLEMENTAR TU LÓGICA PARA MENSAJES DE TEXTO
+    # Por ejemplo: procesar el texto, responder, guardar en base de datos, etc.
+    
+    # Evitar procesar comandos como texto normal
+    if not text.startswith('/'):
+        await update.message.reply_text(f"📝 Texto recibido: {text[:100]}...")
+
+async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Método para manejar mensajes de audio"""
+    audio = update.message.audio
+    
+    # Log para depuración
+    logging.info(f"Audio recibido. Duración: {audio.duration} segundos")
+    
+    # AQUÍ PUEDES IMPLEMENTAR TU LÓGICA PARA AUDIOS
+    # Por ejemplo: procesar el audio, transcribir, guardar, etc.
+    
+    await update.message.reply_text("🎵 Audio recibido correctamente. Procesando...")
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Método para manejar mensajes de voz (voice notes)"""
+    voice = update.message.voice
+    
+    # Log para depuración
+    logging.info(f"Mensaje de voz recibido. Duración: {voice.duration} segundos")
+    
+    # AQUÍ PUEDES IMPLEMENTAR TU LÓGICA PARA NOTAS DE VOZ
+    # Por ejemplo: transcribir, procesar, etc.
+    
+    await update.message.reply_text("🎤 Nota de voz recibida correctamente. Procesando...")
+
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Maneja documentos (podría ser audio, imagen, etc.)"""
+    document = update.message.document
+    
+    # Log para depuración
+    logging.info(f"Documento recibido: {document.file_name}")
+    
+    # Verificar el tipo de documento
+    mime_type = document.mime_type or ""
+    
+    if 'audio' in mime_type:
+        # Es un archivo de audio
+        await handle_audio(update, context)
+    elif 'image' in mime_type:
+        # Es una imagen enviada como documento
+        await handle_image_with_description(update, context)
+    else:
+        await update.message.reply_text(f"📄 Documento recibido: {document.file_name}")
 
 if __name__ == '__main__':
     if not TOKEN:
@@ -51,10 +140,19 @@ if __name__ == '__main__':
         print("Iniciando Bot en modo Polling...")
         application = ApplicationBuilder().token(TOKEN).build()
         
-        start_handler = CommandHandler('start', start)
-        photo_handler = MessageHandler(filters.PHOTO, handle_photo)
+        # Handlers de comandos
+        application.add_handler(CommandHandler('start', start))
+        application.add_handler(CommandHandler('help', help_command))
+        application.add_handler(CommandHandler('send', send_command))
         
-        application.add_handler(start_handler)
-        application.add_handler(photo_handler)
+        # Handlers de mensajes por tipo
+        application.add_handler(MessageHandler(filters.PHOTO & filters.CAPTION, handle_image_with_description))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
+        application.add_handler(MessageHandler(filters.AUDIO, handle_audio))
+        application.add_handler(MessageHandler(filters.VOICE, handle_voice))
+        application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+        
+        # Handler para fotos sin descripción
+        application.add_handler(MessageHandler(filters.PHOTO & ~filters.CAPTION, handle_image_with_description))
         
         application.run_polling()
