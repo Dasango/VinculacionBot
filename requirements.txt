@@ -1,0 +1,7 @@
+Flask
+python-telegram-bot
+Pillow
+gspread
+google-auth
+requests
+python-dotenv
