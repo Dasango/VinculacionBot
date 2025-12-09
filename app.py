@@ -6,7 +6,7 @@ from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, Messa
 from flask import Flask
 from io import BytesIO
 import datetime
-import datetime
+from zoneinfo import ZoneInfo
 from services.google import drive_service as drive_utils
 from utils.bot_proxy import safe_command, DescriptionEmptyError, APIKeyMissingError, set_user_limit
 
@@ -21,6 +21,8 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+
+ECUADOR_TZ = ZoneInfo("America/Guayaquil")
 
 # --- SETUP PARA RAILWAY (Crear archivos de credenciales desde ENV) ---
 def setup_google_credentials():
@@ -295,7 +297,7 @@ async def handle_image_with_description(update: Update, context: ContextTypes.DE
         
         # Definir nombre base: DD-MM-YYYY.jpg
         # drive_utils se encargará de los duplicados (ej: (1), (2))
-        filename = datetime.datetime.now().strftime("%d-%m-%Y.jpg")
+        filename = datetime.datetime.now(ECUADOR_TZ).strftime("%d-%m-%Y.jpg")
         
         
         # Subir a Drive

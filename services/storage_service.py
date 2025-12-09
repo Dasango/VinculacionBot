@@ -3,6 +3,9 @@ import sqlite3
 import datetime
 import logging
 import os
+from zoneinfo import ZoneInfo
+
+ECUADOR_TZ = ZoneInfo("America/Guayaquil")
 
 DB_PATH = 'bot_data.db'
 
@@ -41,7 +44,7 @@ def init_db():
             logging.error(f"Error inicializando DB: {e}")
 
 def get_today_str():
-    return datetime.datetime.now().strftime("%Y-%m-%d")
+    return datetime.datetime.now(ECUADOR_TZ).strftime("%Y-%m-%d")
 
 def get_usage(user_id, command):
     try:

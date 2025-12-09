@@ -2,6 +2,7 @@ import os
 import io
 import datetime
 import logging
+from zoneinfo import ZoneInfo
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -17,6 +18,7 @@ SCOPES = [
 ]
 PARENT_FOLDER_ID = '1sWn78Jmx0QSeOtTgdcyOonovk0jd3kgO'
 SPREADSHEET_ID = '1rXGnD3XQp-ecmdxxgJGf-K-SbxLWYawKXFOqkbl_Dmw'
+ECUADOR_TZ = ZoneInfo("America/Guayaquil")
 
 def get_credentials():
     """Obtiene las credenciales de usuario válidas."""
@@ -97,7 +99,7 @@ def upload_image_from_stream(file_stream, filename, user_id, description=None):
         user_folder_id = user_folder.get('id')
         
         # 2. Obtener/Crear carpeta del día (DD-MM-YYYY) DENTRO de la carpeta del usuario
-        today_str = datetime.datetime.now().strftime("%d-%m-%Y")
+        today_str = datetime.datetime.now(ECUADOR_TZ).strftime("%d-%m-%Y")
         daily_folder = get_or_create_folder(service, today_str, user_folder_id)
         daily_folder_id = daily_folder.get('id')
         
@@ -133,7 +135,7 @@ def upload_image_from_stream(file_stream, filename, user_id, description=None):
 
 def find_user_today_row(service, spreadsheet_id, user_id):
     """Busca la fila correspondiente al usuario y la fecha de hoy. Retorna el índice (1-based) o None."""
-    today_str = datetime.datetime.now().strftime("%d-%m-%Y")
+    today_str = datetime.datetime.now(ECUADOR_TZ).strftime("%d-%m-%Y")
     str_user_id = str(user_id)
     
     # Leer Columnas A (User) y B (Fecha)
@@ -151,7 +153,7 @@ def find_user_today_row(service, spreadsheet_id, user_id):
 def update_timer_logic(service, spreadsheet_id, row_idx):
     """Actualiza G (Inicio), H (Fin) y E (Duración) para una fila existente."""
     try:
-        now_time = datetime.datetime.now().strftime("%H:%M:%S")
+        now_time = datetime.datetime.now(ECUADOR_TZ).strftime("%H:%M:%S")
         
         # 1. Chequear si G está vacío
         range_g = f"G{row_idx}"
@@ -190,7 +192,7 @@ def append_text_log(text, user_id):
 
     try:
         service = get_sheets_service()
-        today_str = datetime.datetime.now().strftime("%d-%m-%Y")
+        today_str = datetime.datetime.now(ECUADOR_TZ).strftime("%d-%m-%Y")
         str_user_id = str(user_id)
         
         row_idx = find_user_today_row(service, SPREADSHEET_ID, user_id)
@@ -220,7 +222,7 @@ def append_text_log(text, user_id):
         else:
             # Crear nueva fila al final
             # Estructura: [User, Fecha, Descripción, Carpeta, Duración, "Filler", Inicio, Fin]
-            now_time = datetime.datetime.now().strftime("%H:%M:%S")
+            now_time = datetime.datetime.now(ECUADOR_TZ).strftime("%H:%M:%S")
             formula = '=INDIRECT("H"&ROW())-INDIRECT("G"&ROW())'
             
             values = [[str_user_id, today_str, text, "No se han guardaron fotos", formula, "", now_time, now_time]]
@@ -239,7 +241,7 @@ def update_daily_folder_link(folder_link, user_id):
 
     try:
         service = get_sheets_service()
-        today_str = datetime.datetime.now().strftime("%d-%m-%Y")
+        today_str = datetime.datetime.now(ECUADOR_TZ).strftime("%d-%m-%Y")
         str_user_id = str(user_id)
         
         row_idx = find_user_today_row(service, SPREADSHEET_ID, user_id)
@@ -258,7 +260,7 @@ def update_daily_folder_link(folder_link, user_id):
         else:
             # Fila no existe
             # Estructura: [User, Fecha, Descripción, Carpeta, Duración, "Filler", Inicio, Fin]
-            now_time = datetime.datetime.now().strftime("%H:%M:%S")
+            now_time = datetime.datetime.now(ECUADOR_TZ).strftime("%H:%M:%S")
             formula = '=INDIRECT("H"&ROW())-INDIRECT("G"&ROW())'
             
             values = [[str_user_id, today_str, "", folder_link, formula, "", now_time, now_time]]
@@ -465,7 +467,7 @@ def generate_excel_report(user_id):
         # 4. Guardar a Excel temporal
         # Usar tempfile para crear un archivo temporal seguro
         temp_dir = tempfile.gettempdir()
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.datetime.now(ECUADOR_TZ).strftime("%Y%m%d_%H%M%S")
         filename = f"reporte_{timestamp}.xlsx"
         filepath = os.path.join(temp_dir, filename)
         
