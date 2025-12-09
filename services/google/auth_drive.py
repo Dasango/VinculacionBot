@@ -1,4 +1,4 @@
-from drive_utils import get_credentials
+from .drive_service import get_credentials
 
 def main():
     print("Iniciando proceso de autenticación con Google Drive...")

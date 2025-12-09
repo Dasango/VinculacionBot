@@ -6,9 +6,11 @@ from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, Messa
 from flask import Flask
 from io import BytesIO
 import datetime
-import drive_utils
-from bot_proxy import safe_command, DescriptionEmptyError, APIKeyMissingError
-import ai_service
+import datetime
+from services.google import drive_service as drive_utils
+from utils.bot_proxy import safe_command, DescriptionEmptyError, APIKeyMissingError
+from services.ai.context import AIContext
+
 # Cargar variables de entorno
 load_dotenv()
 TOKEN = os.getenv('TELEGRAM_TOKEN')
@@ -27,14 +29,14 @@ def home():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Maneja el comando /start"""
-    await update.message.reply_text("¡Hola! Empecemos a documentar vinculación.")
+    await update.message.reply_text("¡Hola! Jerving tu reporte diario.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Maneja el comando /help"""
     help_text = """
 📚 **Comandos disponibles:**
 
-/send - No hace nada
+/send - Envia los datos a la IA para generar el reporte
 /help - Muestra esto
 
 📱 **Funcionalidades:**
@@ -60,7 +62,8 @@ async def send_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # 2. Generar respuesta con IA
     try:
-        ai_response = ai_service.AIService.generate_summary(descriptions)
+        ai_context = AIContext()
+        ai_response = ai_context.generate_summary(descriptions)
     except Exception as e:
         # Si es error de API Key, relanzar especificamente si podemos detectarlo, 
         # sino dejar que el proxy capture el genérico
