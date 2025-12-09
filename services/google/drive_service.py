@@ -318,3 +318,58 @@ def update_ai_response(response_text, user_id):
     except Exception as e:
         logging.error(f"Error actualizando Sheets (AI): {str(e)}")
         raise e
+
+def get_day_messages(user_id):
+    """
+    Obtiene los mensajes individuales (separados por salto de línea) 
+    de la columna descripción para el usuario y día de hoy.
+    Retorna lista de strings o lista vacía.
+    """
+    content = get_day_descriptions(user_id)
+    if content:
+        return content.split('\n')
+    return []
+
+def delete_message_line(user_id, line_index):
+    """
+    Elimina un mensaje específico (por índice 0-based) de la celda de descripción.
+    """
+    if not user_id:
+        return False
+
+    try:
+        service = get_sheets_service()
+        row_idx = find_user_today_row(service, SPREADSHEET_ID, user_id)
+        
+        if row_idx:
+            # 1. Obtener contenido actual
+            range_name = f"C{row_idx}"
+            result = service.spreadsheets().values().get(
+                spreadsheetId=SPREADSHEET_ID, range=range_name).execute()
+            values = result.get('values', [[None]])
+            current_desc = values[0][0] or ""
+            
+            if not current_desc:
+                return False
+                
+            # 2. Procesar lista
+            messages = current_desc.split('\n')
+            
+            if 0 <= line_index < len(messages):
+                removed = messages.pop(line_index)
+                logging.info(f"Eliminando mensaje índice {line_index}: {removed}")
+                
+                # 3. Reconstruir y guardar
+                new_desc = "\n".join(messages)
+                
+                body_desc = {'values': [[new_desc]]}
+                service.spreadsheets().values().update(
+                    spreadsheetId=SPREADSHEET_ID, range=range_name,
+                    valueInputOption="RAW", body=body_desc).execute()
+                return True
+                
+        return False
+            
+    except Exception as e:
+        logging.error(f"Error eliminando mensaje en Sheets: {str(e)}")
+        raise e

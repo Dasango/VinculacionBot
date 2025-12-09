@@ -1,7 +1,7 @@
 import os
 import requests
 from .base import AIStrategy
-from utils.bot_proxy import APIKeyMissingError
+from utils.bot_proxy import APIKeyMissingError, AIServiceError
 from .prompts import SUMMARY_PROMPT_TEMPLATE
 
 class GroqStrategy(AIStrategy):
@@ -27,9 +27,14 @@ class GroqStrategy(AIStrategy):
             "temperature": 0.7
         }
         
-        response = requests.post(url, headers=headers, json=data)
-        
-        if response.status_code == 200:
-            return response.json()['choices'][0]['message']['content']
-        else:
-            raise Exception(f"Error Groq API: {response.text}")
+        try:
+            response = requests.post(url, headers=headers, json=data)
+            
+            if response.status_code == 200:
+                return response.json()['choices'][0]['message']['content']
+            else:
+                raise AIServiceError(f"Error Groq API: {response.text}")
+        except Exception as e:
+             if isinstance(e, AIServiceError):
+                 raise
+             raise AIServiceError(f"Error conectando con Groq: {str(e)}")
