@@ -22,6 +22,28 @@ logging.basicConfig(
     level=logging.INFO
 )
 
+# --- SETUP PARA RAILWAY (Crear archivos de credenciales desde ENV) ---
+def setup_google_credentials():
+    # 1. token.json
+    token_content = os.getenv('GOOGLE_TOKEN_JSON')
+    if token_content:
+        with open('token.json', 'w') as f:
+            f.write(token_content)
+        print("✅ token.json creado desde variable de entorno.")
+    
+    # 2. config/credentials.json
+    creds_content = os.getenv('GOOGLE_CREDENTIALS_JSON')
+    if creds_content:
+        # Asegurar que existe la carpeta config
+        if not os.path.exists('config'):
+            os.makedirs('config')
+            
+        with open('config/credentials.json', 'w') as f:
+            f.write(creds_content)
+        print("✅ config/credentials.json creado desde variable de entorno.")
+
+setup_google_credentials()
+
 app = Flask(__name__)
 
 @app.route('/')
