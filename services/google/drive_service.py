@@ -7,6 +7,8 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
+import pandas as pd
+import tempfile
 
 # Scopes actualizados para Drive y Sheets
 SCOPES = [
@@ -370,6 +372,107 @@ def delete_message_line(user_id, line_index):
                 
         return False
             
+
     except Exception as e:
         logging.error(f"Error eliminando mensaje en Sheets: {str(e)}")
+        raise e
+
+def get_ai_response(user_id):
+    """
+    Obtiene el contenido de la columna F (AI Response) para el usuario y día actual.
+    Retorna el string de la respuesta o None si no existe.
+    """
+    if not user_id:
+        return None
+        
+    try:
+        service = get_sheets_service()
+        row_idx = find_user_today_row(service, SPREADSHEET_ID, user_id)
+        
+        if row_idx:
+            range_name = f"F{row_idx}"
+            result = service.spreadsheets().values().get(
+                spreadsheetId=SPREADSHEET_ID, range=range_name).execute()
+            values = result.get('values', [])
+            if values and values[0]:
+                return values[0][0]
+                
+        return None
+        
+    except Exception as e:
+        logging.error(f"Error leyendo AI response: {str(e)}")
+        raise e
+
+
+def generate_excel_report(user_id):
+    """
+    Genera un archivo Excel con todos los registros del usuario.
+    Retorna la ruta del archivo temporal generado.
+    """
+    if not user_id:
+        return None
+
+    try:
+        service = get_sheets_service()
+        str_user_id = str(user_id)
+        
+        # 1. Leer todos los datos
+        # Asumiendo que las columnas son A-H. Leeremos todo el rango con datos.
+        result = service.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID, range="A:H").execute()
+        
+        values = result.get('values', [])
+        
+        if not values:
+            return None
+            
+        # 2. Filtrar por usuario y mapear columnas
+        # Indices (0-based):
+        # 0: User, 1: Fecha, 2: Descripcion, 3: Carpeta (Images), 4: Duracion, 5: AI Response (Tus mensajes)
+        # Output columns: Fecha, duracion, Descripcion, images, tus mensajes
+        
+        data = []
+        for row in values:
+            # Asegurar que la fila tenga suficientes columnas para chequear usuario (Indices pueden variar si la fila esta vacia al final)
+            if len(row) > 0 and row[0] == str_user_id:
+                # Extraer datos con manejo de indices fuera de rango
+                fecha = row[1] if len(row) > 1 else ""
+                desc = row[2] if len(row) > 2 else ""
+                imgs = row[3] if len(row) > 3 else ""
+                duracion = row[4] if len(row) > 4 else ""
+                ai_msg = row[5] if len(row) > 5 else ""
+                
+                if not ai_msg:
+                    ai_msg = "No se ha usado el comando /send para que la ia genere la descripcion"
+
+                data.append({
+                    'Fecha': fecha,
+                    'duracion': duracion,
+                    'Descripcion': desc,
+                    'images': imgs,
+                    'tus mensajes': ai_msg
+                })
+        
+        if not data:
+            return None
+            
+        # 3. Crear DataFrame
+        df = pd.DataFrame(data)
+        
+        # Reordenar columnas si es necesario (el dict puede no mantener orden en versiones viejas de python, pero pandas si recibed lista de dicts usa orden de keys o alfabetico? Mejor especificar columnas)
+        df = df[['Fecha', 'duracion', 'Descripcion', 'images', 'tus mensajes']]
+        
+        # 4. Guardar a Excel temporal
+        # Usar tempfile para crear un archivo temporal seguro
+        temp_dir = tempfile.gettempdir()
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"reporte_{timestamp}.xlsx"
+        filepath = os.path.join(temp_dir, filename)
+        
+        df.to_excel(filepath, index=False)
+        
+        return filepath
+
+    except Exception as e:
+        logging.error(f"Error generando reporte Excel: {str(e)}")
         raise e

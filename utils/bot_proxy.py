@@ -2,6 +2,11 @@ import logging
 import functools
 from telegram import Update
 from telegram.ext import ContextTypes
+import datetime
+from services.storage_service import get_usage, increment_usage, init_db, get_user_limit, set_user_limit
+
+# Inicializar DB al importar
+init_db()
 
 class DescriptionEmptyError(Exception):
     """Excepción para cuando no hay descripciones para procesar."""
@@ -15,35 +20,15 @@ class AIServiceError(Exception):
     """Excepción para cuando falla el servicio de IA."""
     pass
 
-import datetime
-
 # Constantes para "Paywall"
 MAGIC_WORD = "YuriCalvo"
-MAX_FREE_USES = 1
+MAX_FREE_USES_PER_COMMAND = 1
 
-# Estructura simple en memoria para tracking diario: { 'YYYY-MM-DD': { user_id: count } }
-_daily_usage = {}
-
-def get_today_str():
-    return datetime.datetime.now().strftime("%Y-%m-%d")
-
-def check_quota(user_id: int) -> bool:
-    """Verifica si el usuario tiene cupo o necesita palabra mágica."""
-    today = get_today_str()
-    
-    # Limpiar días viejos (simple logic: si la key no es hoy, reset total o ignorar)
-    if get_today_str() not in _daily_usage:
-        _daily_usage.clear()
-        _daily_usage[today] = {}
-        
-    usage = _daily_usage[today].get(user_id, 0)
-    return usage < MAX_FREE_USES
-
-def increment_quota(user_id: int):
-    today = get_today_str()
-    if today not in _daily_usage:
-        _daily_usage[today] = {}
-    _daily_usage[today][user_id] = _daily_usage[today].get(user_id, 0) + 1
+def check_quota(user_id: int, command: str) -> bool:
+    """Verifica si el usuario tiene cupo para el comando específico."""
+    limit = get_user_limit(user_id, default_limit=MAX_FREE_USES_PER_COMMAND)
+    usage = get_usage(user_id, command)
+    return usage < limit
 
 class BotOperationProxy:
     """
@@ -55,16 +40,15 @@ class BotOperationProxy:
     async def execute(update: Update, context: ContextTypes.DEFAULT_TYPE, func, *args, **kwargs):
         """
         Ejecuta una función asíncrona controlando excepciones específicas.
-        
-        Uso:
-            await BotOperationProxy.execute(update, context, mi_funcion_async)
         """
         user_id = update.effective_user.id
+        command_name = func.__name__
         
-        # Lógica específica para rate-limit en el comando 'send'
-        # Verificamos por nombre de función si es la que queremos limitar
-        if func.__name__ == 'send_command':
-            if not check_quota(user_id):
+        # Lista de comandos limitados
+        LIMITED_COMMANDS = ['send_command', 'get_command']
+
+        if command_name in LIMITED_COMMANDS:
+            if not check_quota(user_id, command_name):
                 # Ya usó su cupo gratis. Verificar palabra mágica en argumentos.
                 # context.args viene de CommandHandler, si existe
                 user_args = getattr(context, 'args', [])
@@ -75,17 +59,18 @@ class BotOperationProxy:
                         if MAGIC_WORD.lower() in arg.lower(): # Case insensitive check
                             has_magic_word = True
                             break
-                
+                            
                 if not has_magic_word:
-                    await update.message.reply_text("Sorry pero no tengo tantos tokens para generar mas de una vez, pagame y te doy mas :D")
+                    cmd_display = "/get" if command_name == 'get_command' else "/send"
+                    await update.message.reply_text(f"🚫 Límite diario alcanzado para {cmd_display}.\nUsa la palabra mágica para continuar o espera a mañana.")
                     return # Bloquear ejecución
         
         try:
             result = await func(update, context, *args, **kwargs)
             
-            # Si tuvo éxito y era send_command, incrementar uso
-            if func.__name__ == 'send_command':
-                increment_quota(user_id)
+            # Si tuvo éxito y era un comando limitado, incrementar uso
+            if command_name in LIMITED_COMMANDS:
+                increment_usage(user_id, command_name)
                 
             return result
             
@@ -109,5 +94,8 @@ def safe_command(func):
     """Decorador para usar el proxy más fácilmente."""
     @functools.wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        if not update.effective_user:
+             # Caso raro donde no hay usuario (ej: channel post?), dejar pasar o manejar error
+             pass
         return await BotOperationProxy.execute(update, context, func, *args, **kwargs)
     return wrapper
