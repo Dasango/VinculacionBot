@@ -580,33 +580,41 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
-if __name__ == '__main__':
+def create_application():
+    """Configura y retorna la aplicación del bot con todos los handlers."""
     if not TOKEN:
         print("Error: TELEGRAM_TOKEN no encontrado en .env")
-    else:
-        application = ApplicationBuilder().token(TOKEN).build()
-        
-        # Handlers de comandos
-        application.add_handler(CommandHandler('start', start))
-        application.add_handler(CommandHandler('help', help_command))
-        application.add_handler(CommandHandler('send', send_command))
-        application.add_handler(CommandHandler('get', get_command))
-        application.add_handler(CommandHandler('remove', remove_command))
-        application.add_handler(CommandHandler('status', status_command))
-        
-        # Callback query handler para el menú de eliminar
-        application.add_handler(CallbackQueryHandler(remove_callback_handler, pattern="^rm_"))
-        
-        # Handlers de mensajes por tipo
-        application.add_handler(MessageHandler(filters.PHOTO & filters.CAPTION, handle_image_with_description))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
-        application.add_handler(MessageHandler(filters.AUDIO, handle_audio))
-        application.add_handler(MessageHandler(filters.VOICE, handle_voice))
-        application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
-        
-        # Handler para fotos sin descripción
-        application.add_handler(MessageHandler(filters.PHOTO & ~filters.CAPTION, handle_image_with_description))
-        
+        return None
+
+    application = ApplicationBuilder().token(TOKEN).build()
+    
+    # Handlers de comandos
+    application.add_handler(CommandHandler('start', start))
+    application.add_handler(CommandHandler('help', help_command))
+    application.add_handler(CommandHandler('send', send_command))
+    application.add_handler(CommandHandler('get', get_command))
+    application.add_handler(CommandHandler('remove', remove_command))
+    application.add_handler(CommandHandler('status', status_command))
+    
+    # Callback query handler para el menú de eliminar
+    application.add_handler(CallbackQueryHandler(remove_callback_handler, pattern="^rm_"))
+    
+    # Handlers de mensajes por tipo
+    application.add_handler(MessageHandler(filters.PHOTO & filters.CAPTION, handle_image_with_description))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
+    application.add_handler(MessageHandler(filters.AUDIO, handle_audio))
+    application.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+    
+    # Handler para fotos sin descripción
+    application.add_handler(MessageHandler(filters.PHOTO & ~filters.CAPTION, handle_image_with_description))
+    
+    return application
+
+if __name__ == '__main__':
+    application = create_application()
+    
+    if application:
         # Configuración Webhook vs Polling
         webhook_url = os.getenv("WEBHOOK_URL")
         
