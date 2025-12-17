@@ -133,9 +133,9 @@ def upload_image_from_stream(file_stream, filename, user_id, description=None):
 
 # --- SHEETS FUNCTIONS ---
 
-def find_user_today_row(service, spreadsheet_id, user_id):
-    """Busca la fila correspondiente al usuario y la fecha de hoy. Retorna el índice (1-based) o None."""
-    today_str = datetime.datetime.now(ECUADOR_TZ).strftime("%d-%m-%Y")
+def find_user_row_by_date(service, spreadsheet_id, user_id, date_obj):
+    """Busca la fila correspondiente al usuario y la fecha dada. Retorna el índice (1-based) o None."""
+    target_date_str = date_obj.strftime("%d-%m-%Y")
     str_user_id = str(user_id)
     
     # Leer Columnas A (User) y B (Fecha)
@@ -145,15 +145,23 @@ def find_user_today_row(service, spreadsheet_id, user_id):
     
     for i, row in enumerate(values):
         # Asegurarse que la fila tenga al menos 2 columnas
-        if len(row) >= 2 and row[0] == str_user_id and row[1] == today_str:
+        if len(row) >= 2 and row[0] == str_user_id and row[1] == target_date_str:
             return i + 1  # 1-based index
             
     return None
 
-def update_timer_logic(service, spreadsheet_id, row_idx):
+def find_user_today_row(service, spreadsheet_id, user_id):
+    """Busca la fila para hoy (wrapper)."""
+    now = datetime.datetime.now(ECUADOR_TZ)
+    return find_user_row_by_date(service, spreadsheet_id, user_id, now)
+
+def update_timer_logic(service, spreadsheet_id, row_idx, message_date=None):
     """Actualiza G (Inicio), H (Fin) y E (Duración) para una fila existente."""
     try:
-        now_time = datetime.datetime.now(ECUADOR_TZ).strftime("%H:%M:%S")
+        if message_date:
+            time_str = message_date.strftime("%H:%M:%S")
+        else:
+            time_str = datetime.datetime.now(ECUADOR_TZ).strftime("%H:%M:%S")
         
         # 1. Chequear si G está vacío
         range_g = f"G{row_idx}"
@@ -165,11 +173,16 @@ def update_timer_logic(service, spreadsheet_id, row_idx):
         
         data = []
         # Si G vacío, actualizarlo
+        # OJO: Si procesamos mensajes en desorden, esto asume que el primero que llega es el 'inicio'.
+        # Pero G debe ser el MINIMO y H el MAXIMO.
+        # Por simplicidad y como el bot procesa en orden (cron o real time), asumimos orden de llegada
+        # Si es cron y procesa batch, Telegram entrega updates en orden.
         if not current_g:
-            data.append({'range': f"G{row_idx}", 'values': [[now_time]]})
+            data.append({'range': f"G{row_idx}", 'values': [[time_str]]})
+        # TODO: Idealmente compararíamos tiempos, pero Strings son comparables si formato es HH:MM:SS
             
-        # Siempre actualizar H
-        data.append({'range': f"H{row_idx}", 'values': [[now_time]]})
+        # Siempre actualizar H con la hora de este mensaje
+        data.append({'range': f"H{row_idx}", 'values': [[time_str]]})
         
         # Asegurar fórmula E
         formula = f"=H{row_idx}-G{row_idx}"
@@ -185,17 +198,26 @@ def update_timer_logic(service, spreadsheet_id, row_idx):
     except Exception as e:
         logging.error(f"Error actualizando timers: {str(e)}")
 
-def append_text_log(text, user_id):
-    """Agrega texto a la columna Descripción (C) para el usuario y día de hoy."""
+def append_text_log(text, user_id, message_date=None):
+    """Agrega texto a la columna Descripción (C). Usa message_date si existe."""
     if not user_id:
         return
 
     try:
         service = get_sheets_service()
-        today_str = datetime.datetime.now(ECUADOR_TZ).strftime("%d-%m-%Y")
         str_user_id = str(user_id)
         
-        row_idx = find_user_today_row(service, SPREADSHEET_ID, user_id)
+        # Determinar fecha y hora a usar
+        if message_date:
+            date_to_use = message_date
+        else:
+            date_to_use = datetime.datetime.now(ECUADOR_TZ)
+            
+        date_str = date_to_use.strftime("%d-%m-%Y")
+        time_str = date_to_use.strftime("%H:%M:%S")
+        
+        # Buscar fila por FECHA DEL MENSAJE, no fecha actual
+        row_idx = find_user_row_by_date(service, SPREADSHEET_ID, user_id, date_to_use)
         
         if row_idx:
             # La fila existe, obtener contenido actual de Descripción (Col C)
@@ -216,16 +238,15 @@ def append_text_log(text, user_id):
                 spreadsheetId=SPREADSHEET_ID, range=range_name,
                 valueInputOption="RAW", body=body_desc).execute()
             
-            # Actualizar timers
-            update_timer_logic(service, SPREADSHEET_ID, row_idx)
+            # Actualizar timers con la fecha del mensaje
+            update_timer_logic(service, SPREADSHEET_ID, row_idx, message_date=date_to_use)
 
         else:
-            # Crear nueva fila al final
+            # Crear nueva fila
             # Estructura: [User, Fecha, Descripción, Carpeta, Duración, "Filler", Inicio, Fin]
-            now_time = datetime.datetime.now(ECUADOR_TZ).strftime("%H:%M:%S")
             formula = '=INDIRECT("H"&ROW())-INDIRECT("G"&ROW())'
             
-            values = [[str_user_id, today_str, text, "No se han guardaron fotos", formula, "", now_time, now_time]]
+            values = [[str_user_id, date_str, text, "No se han guardaron fotos", formula, "", time_str, time_str]]
             body = {'values': values}
             service.spreadsheets().values().append(
                 spreadsheetId=SPREADSHEET_ID, range="A1",
@@ -234,20 +255,26 @@ def append_text_log(text, user_id):
     except Exception as e:
         logging.error(f"Error actualizando Sheets (Texto): {str(e)}")
 
-def update_daily_folder_link(folder_link, user_id):
-    """Actualiza la columna Carpeta (D) con el link para el usuario y día de hoy."""
+def update_daily_folder_link(folder_link, user_id, message_date=None):
+    """Actualiza la columna Carpeta (D). Usa message_date si existe."""
     if not user_id:
         return
 
     try:
         service = get_sheets_service()
-        today_str = datetime.datetime.now(ECUADOR_TZ).strftime("%d-%m-%Y")
         str_user_id = str(user_id)
         
-        row_idx = find_user_today_row(service, SPREADSHEET_ID, user_id)
+        if message_date:
+            date_to_use = message_date
+        else:
+            date_to_use = datetime.datetime.now(ECUADOR_TZ)
+        date_str = date_to_use.strftime("%d-%m-%Y")
+        time_str = date_to_use.strftime("%H:%M:%S")
+            
+        row_idx = find_user_row_by_date(service, SPREADSHEET_ID, user_id, date_to_use)
         
         if row_idx:
-            # Fila existe, actualizar Carpeta (Col D)
+            # Fila existe
             range_name = f"D{row_idx}"
             body = {'values': [[folder_link]]}
             service.spreadsheets().values().update(
@@ -255,15 +282,13 @@ def update_daily_folder_link(folder_link, user_id):
                 valueInputOption="RAW", body=body).execute()
             
             # Actualizar timers
-            update_timer_logic(service, SPREADSHEET_ID, row_idx)
+            update_timer_logic(service, SPREADSHEET_ID, row_idx, message_date=date_to_use)
                 
         else:
             # Fila no existe
-            # Estructura: [User, Fecha, Descripción, Carpeta, Duración, "Filler", Inicio, Fin]
-            now_time = datetime.datetime.now(ECUADOR_TZ).strftime("%H:%M:%S")
             formula = '=INDIRECT("H"&ROW())-INDIRECT("G"&ROW())'
             
-            values = [[str_user_id, today_str, "", folder_link, formula, "", now_time, now_time]]
+            values = [[str_user_id, date_str, "", folder_link, formula, "", time_str, time_str]]
             body = {'values': values}
             service.spreadsheets().values().append(
                 spreadsheetId=SPREADSHEET_ID, range="A1",

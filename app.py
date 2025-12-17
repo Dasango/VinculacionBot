@@ -301,17 +301,22 @@ async def handle_image_with_description(update: Update, context: ContextTypes.DE
         
         
         # Subir a Drive
+        # Nota: La imagen se sube a la carpeta del día de PROCESAMIENTO por ahora (para no complicar create_doc logic)
+        # pero el link se guardará en la fila correspondiente a la fecha del mensaje.
         uploaded_file, daily_folder = drive_utils.upload_image_from_stream(file_stream, filename, user_id, description=caption)
+        
+        # Obtener fecha del mensaje
+        message_date = update.message.date.astimezone(ECUADOR_TZ)
         
         # Actualizar Sheet con Link de la Carpeta
         if daily_folder and daily_folder.get('webViewLink'):
-             drive_utils.update_daily_folder_link(daily_folder.get('webViewLink'), user_id=user_id)
+             drive_utils.update_daily_folder_link(daily_folder.get('webViewLink'), user_id=user_id, message_date=message_date)
              
         # Si hay caption, guardarlo como texto en el Sheet también?
         # El usuario dijo: "todos los mensajes de texto se guarden en la columna description"
         # Asumo que el caption cuenta como mensaje de texto asociado.
         if caption:
-            drive_utils.append_text_log(f"{caption}", user_id=user_id)
+            drive_utils.append_text_log(f"{caption}", user_id=user_id, message_date=message_date)
         
         response_text = f"✅ ¡Guardado en Drive!\n"
         response_text += f"📂 Archivo: {uploaded_file.get('name')}\n"
@@ -335,7 +340,8 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Evitar procesar comandos como texto normal
     if not text.startswith('/'):
         # Guardar en Sheets
-        drive_utils.append_text_log(text, user_id=user_id)
+        message_date = update.message.date.astimezone(ECUADOR_TZ)
+        drive_utils.append_text_log(text, user_id=user_id, message_date=message_date)
         await update.message.reply_text(f"📝 Texto guardado en bitácora.")
 
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
