@@ -4,10 +4,7 @@ on:
   schedule:
     # 14:00 Ecuador (+5h) = 19:00 UTC
     # 18:00 Ecuador (+5h) = 23:00 UTC
-    - cron: '0 19,23 * * *'
-    
-    # 23:30 Ecuador (+5h) = 04:30 UTC (del día siguiente)
-    - cron: '30 4 * * *'
+    - cron: '0 23 * * *'
     
   workflow_dispatch:
 
